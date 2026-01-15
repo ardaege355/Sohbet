@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XMP Pro - Kodlu Gruplar</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --container-bg: #ffffff;
+            --primary: #1b2735; /* Lacivert */
+            --secondary: #ffffff; /* Beyaz */
+            --text-color: #1b2735;
+            --msg-sent: #e1f5fe;
+            --msg-received: #f5f5f5;
+            --header-text: #ffffff;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0b141a;
+            --container-bg: #111b21;
+            --primary: #202c33;
+            --text-color: #e9edef;
+            --msg-sent: #005c4b;
+            --msg-received: #202c33;
+            --header-text: #d1d7db;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; transition: background 0.3s, color 0.3s; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg-color); height: 100vh; display: flex; justify-content: center; }
+        
+        .container { background: var(--container-bg); width: 100%; max-width: 500px; height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 15px rgba(0,0,0,0.2); position: relative; }
+        
+        /* Header */
+        .header { background: var(--primary); color: var(--header-text); padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .theme-toggle { cursor: pointer; font-size: 20px; }
+
+        /* Auth & Group Join Screen */
+        .overlay-screen { padding: 40px; text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 15px; }
+        input { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; background: var(--container-bg); color: var(--text-color); }
+        .btn { padding: 12px; background: #00a884; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .btn-navy { background: #1b2735; }
+
+        /* Chat Area */
+        #chat-screen { display: none; flex-direction: column; height: 100%; }
+        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 8px; background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'); }
+        
+        .msg { padding: 8px 12px; border-radius: 8px; max-width: 80%; font-size: 14px; position: relative; color: var(--text-color); box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+        .sent { background: var(--msg-sent); align-self: flex-end; border-top-right-radius: 0; }
+        .received { background: var(--msg-received); align-self: flex-start; border-top-left-radius: 0; }
+        .sender-tag { display: block; font-size: 11px; font-weight: bold; margin-bottom: 3px; color: #00a884; }
+
+        .report-link { font-size: 10px; color: #ff4b4b; cursor: pointer; float: right; margin-left: 10px; text-decoration: underline; }
+
+        .input-area { padding: 10px; background: var(--primary); display: flex; gap: 10px; }
+        #msg-input { border-radius: 20px; }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="auth-screen" class="overlay-screen">
+            <h2 style="color: var(--primary)">XMP Sohbet</h2>
+            <input type="text" id="user-name" placeholder="Takma Adınız">
+            <input type="email" id="email" placeholder="E-posta">
+            <input type="password" id="password" placeholder="Şifre">
+            <button class="btn btn-navy" onclick="handleAuth()">Kayıt Ol / Giriş Yap</button>
+        </div>
+
+        <div id="group-screen" class="overlay-screen hidden">
+            <h3>Gruba Katıl</h3>
+            <p style="font-size: 13px; color: gray;">Girmek istediğiniz grubun kodunu yazın.</p>
+            <input type="text" id="group-code" placeholder="Örn: ozel_oda_123">
+            <button class="btn" onclick="joinGroup()">Gruba Giriş Yap</button>
+            <button style="background:none; border:none; color:blue; cursor:pointer;" onclick="logout()">Çıkış Yap</button>
+        </div>
+
+        <div id="chat-screen">
+            <div class="header">
+                <div>
+                    <span id="room-name" style="font-size: 12px; display: block; opacity: 0.8;">Grup</span>
+                    <span id="user-display">Kullanıcı</span>
+                </div>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <span class="theme-toggle" onclick="toggleTheme()">🌓</span>
+                    <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="location.reload()">Ayrıl</button>
+                </div>
+            </div>
+            <div id="messages"></div>
+            <div class="input-area">
+                <input type="text" id="msg-input" placeholder="Mesaj yazın...">
+                <button class="btn" id="send-btn" style="border-radius: 50%;">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, updateProfile, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getDatabase, ref, push, onChildAdded, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAqiGFukHcCJurBS8t35i2Q3s9nQvPdmcM",
+            authDomain: "xmps-bba4a.firebaseapp.com",
+            databaseURL: "https://xmps-bba4a-default-rtdb.firebaseio.com",
+            projectId: "xmps-bba4a",
+            storageBucket: "xmps-bba4a.firebasestorage.app",
+            messagingSenderId: "348983388349",
+            appId: "1:348983388349:web:e2e5c3ed06c08ef3382fd4"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        let activeGroup = "";
+
+        // --- TEMA YÖNETİMİ ---
+        window.toggleTheme = () => {
+            const current = document.body.getAttribute('data-theme');
+            document.body.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+        };
+
+        // --- AUTH ---
+        window.handleAuth = async () => {
+            const name = document.getElementById('user-name').value;
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('password').value;
+            if(!name) return alert("Lütfen bir isim seçin");
+
+            try {
+                let userCred;
+                try {
+                    userCred = await createUserWithEmailAndPassword(auth, email, pass);
+                } catch {
+                    userCred = await signInWithEmailAndPassword(auth, email, pass);
+                }
+                await updateProfile(userCred.user, { displayName: name });
+            } catch (err) { alert(err.message); }
+        };
+
+        window.logout = () => signOut(auth);
+
+        onAuthStateChanged(auth, (user) => {
+            document.getElementById('auth-screen').classList.toggle('hidden', !!user);
+            document.getElementById('group-screen').classList.toggle('hidden', !user || !!activeGroup);
+            if(user) document.getElementById('user-display').innerText = user.displayName;
+        });
+
+        // --- GRUP KATILMA ---
+        window.joinGroup = () => {
+            const code = document.getElementById('group-code').value.trim();
+            if(!code) return alert("Kod giriniz");
+            activeGroup = code;
+            document.getElementById('group-screen').classList.add('hidden');
+            document.getElementById('chat-screen').style.display = 'flex';
+            document.getElementById('room-name').innerText = "Grup Kodu: " + activeGroup;
+            loadMessages();
+        };
+
+        // --- SOHBET ---
+        function loadMessages() {
+            const msgBox = document.getElementById('messages');
+            msgBox.innerHTML = "";
+            const chatRef = ref(db, 'groups/' + activeGroup);
+
+            onChildAdded(chatRef, (snap) => {
+                const data = snap.val();
+                const isMe = data.uid === auth.currentUser.uid;
+                
+                const div = document.createElement('div');
+                div.className = `msg  'received'`;
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = "sender-tag";
+                nameSpan.innerText = isMe ? "Siz" : data.name;
+
+                const report = document.createElement('span');
+                report.className = "report-link";
+                report.innerText = "!";
+                report.onclick = () => {
+                    push(ref(db, 'reports'), { msgId: snap.key, by: auth.currentUser.uid });
+                    alert("Raporlandı.");
+                };
+
+                const textDiv = document.createElement('div');
+                textDiv.innerText = data.text;
+
+                div.appendChild(report);
+                div.appendChild(nameSpan);
+                div.appendChild(textDiv);
+                msgBox.appendChild(div);
+                msgBox.scrollTop = msgBox.scrollHeight;
+            });
+        }
+
+        const send = () => {
+            const input = document.getElementById('msg-input');
+            if(input.value.trim()){
+                push(ref(db, 'groups/' + activeGroup), {
+                    uid: auth.currentUser.uid,
+                    name: auth.currentUser.displayName,
+                    text: input.value,
+                    time: serverTimestamp()
+                });
+                input.value = "";
+            }
+        };
+
+        document.getElementById('send-btn').onclick = send;
+        document.getElementById('msg-input').onkeypress = (e) => { if(e.key === 'Enter') send(); };
+
+    </script>
+</body>
+</html>
